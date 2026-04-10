@@ -9,9 +9,7 @@ C:\inetpub\wwwroot\web.config
 C:\inetpub\logs\LogFiles
 C:\Windows\debug\NetSetup.log
 C:\Windows\Panther\Unattend.xml
-C:\Windows\Panther\unattend.xml
 C:\Windows\System32\inetsrv\config\applicationHost.config
 C:\xampp\apache\conf\httpd.conf
 C:\xampp\mysql\bin\my.ini
 C:\xampp\php\php.ini
-C:\Users\Administrator\.ssh\id_rsa

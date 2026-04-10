@@ -41,5 +41,3 @@
 /root/.bash_history
 /root/.ssh/id_rsa
 /root/.ssh/authorized_keys
-/home/*/.bash_history
-/home/*/.ssh/id_rsa
